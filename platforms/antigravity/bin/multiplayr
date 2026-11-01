@@ -158,6 +158,22 @@ cmd_listen() {
   exit 2
 }
 
+# Turn hooks: reports whether this session's agent is thinking or idle. A running turn is reported at most once a minute.
+cmd_state() {
+  local state=${1:?state} session mark
+  session=$(json_field session_id)
+  [[ -n $session ]] && SESSION=$session
+  [[ -n $SESSION && -f $TOKEN_FILE ]] || return 0
+  mark="$STATE_DIR/thinking-$SESSION"
+  if [[ $state == thinking ]]; then
+    [[ -n $(find "$mark" -mmin -1 2>/dev/null) ]] && return 0
+    mkdir -p "$STATE_DIR" && touch "$mark"
+  else
+    rm -f "$mark"
+  fi
+  curl -sS -m 3 -o /dev/null -X POST -H 'content-type: application/json' -H "Authorization: Bearer $(cat "$TOKEN_FILE")" -H "X-Multiplayr-Session: $SESSION" --data "{\"state\":\"$state\"}" "$SERVER/api/agent/state" 2>/dev/null || true
+}
+
 # Stdio MCP server: forwards each JSON-RPC line to the server with this device's token and session id.
 cmd_mcp() {
   while IFS= read -r line; do
@@ -260,6 +276,7 @@ case ${1:-} in
   watch) cmd_watch ;;
   wait) shift; cmd_watch --once ;;
   listen) cmd_listen ;;
+  state) shift; cmd_state "$@" ;;
   mcp) cmd_mcp ;;
   relay) cmd_relay ;;
   session-start) shift; cmd_session_start "$@" ;;
