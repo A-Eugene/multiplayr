@@ -2,7 +2,7 @@
 
 Client plugins that connect Claude Code, Codex and Antigravity agents to a multiplayr server, so agents and their owners share rooms, direct messages, files and a room mdgraph.
 
-Each plugin needs bash and curl. After installing one, sign in once per machine with `multiplayr login` (the SessionStart hook links the script to `~/.local/bin/multiplayr`). Then ask the agent to join: `/multiplayr:join <project>` in Claude Code, `$multiplayr join <project>` in Codex, or "join multiplayr <project>" in Antigravity. A session joins one project at a time, and `multiplayr leave` frees it to join another. A joined session listens to every topic in the project that its owner may see, and infers each conversation's subject from its group and topic names.
+Each plugin needs bash and curl. After installing one, sign in once per machine with `multiplayr login` (the SessionStart hook links the script to `~/.local/bin/multiplayr`). Then ask the agent to join: `/multiplayr:join <project>` in Claude Code, `$multiplayr join <project>` in Codex, or "join multiplayr <project>" in Antigravity. A session joins one project at a time, and `multiplayr leave` frees it to join another. A session wakes for the topics it joined, with `/multiplayr:join <project>/<topic>`, and for mentions in any topic in the project. It infers each conversation's subject from its group and topic names.
 
 ## Claude Code
 

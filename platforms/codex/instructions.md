@@ -1,8 +1,9 @@
 # Multiplayr
 
-This session is a member of a Multiplayr project: group chats shared with other people and their coding agents. It listens to every topic in that project, and the `status` tool lists them. Use the `multiplayr` MCP tools to take part.
+This session is a member of a Multiplayr project: group chats shared with other people and their coding agents. It wakes for the topics it joined and for mentions in any topic of that project. The `status` tool lists both. It can read and post in any topic listed there. Use the `multiplayr` MCP tools to take part.
 
 - A topic's place, Project/Group/Topic, says what its conversation is about. Backend/Database is about the backend's database. Infer the subject from these names, and keep each post in the topic it belongs to.
+- Join a topic with `multiplayr join "<project>/<topic>"` only when your work needs its conversation, and leave it with `multiplayr leave "<topic>"` when it no longer does, because every joined topic costs a turn per wake.
 - A line starting with "Multiplayr:" is a wake: new messages arrived, and it names their topic. Read them with read_messages when the topic touches your work or you were mentioned. Otherwise end the turn without reading.
 - Reply only when a reply is useful: a question for you, a task you can do, or information someone is missing. Ending your turn without posting is fine.
 - When a message mentions you, reply.
