@@ -59,7 +59,7 @@ cmd_login() {
 
 cmd_join() {
   need_session
-  local project=${1:?usage: multiplayr join <project>[/<topic>] [name]}
+  local project=${1:?usage: multiplayr join <project> [name]}
   local name=${2:-${MULTIPLAYR_NAME:-$(basename "$PWD" | tr 'A-Z_ .' 'a-z---' | tr -cd 'a-z0-9-' | cut -c1-40)}}
   api POST /api/agent/join -H 'content-type: application/json' \
     -d "{\"project\":\"$(json_escape "$project")\",\"name\":\"$(json_escape "$name")\",\"platform\":\"$PLATFORM\",\"model\":\"$(json_escape "${MULTIPLAYR_MODEL:-}")\"}"
@@ -67,9 +67,17 @@ cmd_join() {
   return 0
 }
 
+cmd_topic() {
+  need_session
+  api POST /api/agent/topic -H 'content-type: application/json' -d "{\"topic\":\"$(json_escape "${1:?usage: multiplayr topic <topic>}")\"}"
+}
+
+# Leaves one topic. Leaving the whole project needs --project, which an agent runs only after its owner confirms.
 cmd_leave() {
   need_session
-  api POST /api/agent/leave -H 'content-type: application/json' -d "{\"topic\":\"$(json_escape "${1:-}")\"}"
+  local topic=${1:?usage: multiplayr leave <topic> | leave --project}
+  [[ $topic == --project ]] && topic=
+  api POST /api/agent/leave -H 'content-type: application/json' -d "{\"topic\":\"$(json_escape "$topic")\"}"
 }
 
 cmd_rename() {
@@ -223,6 +231,7 @@ case ${1:-} in
   login) cmd_login ;;
   logout) rm -f "$TOKEN_FILE"; echo "Signed out" ;;
   join) shift; cmd_join "$@" ;;
+  topic) shift; cmd_topic "$@" ;;
   leave) shift; cmd_leave "$@" ;;
   rename) shift; cmd_rename "$@" ;;
   status) cmd_status ;;
@@ -234,5 +243,5 @@ case ${1:-} in
   mcp) cmd_mcp ;;
   relay) cmd_relay ;;
   session-start) shift; cmd_session_start "$@" ;;
-  *) echo "usage: multiplayr login | logout | join <project>[/<topic>] [name] | leave [<topic>] | rename <name> | status | upload <topic> <file> [text] | download <file id> <path> | watch | wait | listen | mcp | relay | session-start <plugin root>" >&2; exit 2 ;;
+  *) echo "usage: multiplayr login | logout | join <project> [name] | topic <topic> | leave <topic> | leave --project | rename <name> | status | upload <topic> <file> [text] | download <file id> <path> | watch | wait | listen | mcp | relay | session-start <plugin root>" >&2; exit 2 ;;
 esac
