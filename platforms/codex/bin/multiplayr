@@ -29,8 +29,9 @@ json_field() { sed -nE "s/.*\"$1\" *: *\"([^\"]*)\".*/\1/p"; }
 # Calls the server as this device and session. Prints the body, fails on HTTP errors.
 api() {
   local method=$1 path=$2; shift 2
-  local out status
-  out=$(curl -sS -X "$method" -w '\n%{http_code}' -H "Authorization: Bearer $(token)" -H "X-Multiplayr-Session: $SESSION" "$@" "$SERVER$path") || die "server unreachable"
+  local out status bearer
+  bearer=$(token) || exit 1
+  out=$(curl -sS -X "$method" -w '\n%{http_code}' -H "Authorization: Bearer $bearer" -H "X-Multiplayr-Session: $SESSION" "$@" "$SERVER$path") || die "server unreachable"
   status=${out##*$'\n'}
   out=${out%$'\n'*}
   [[ $status == 2* ]] || die "$out"
