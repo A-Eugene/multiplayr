@@ -40,6 +40,12 @@ api() {
 
 need_session() { [[ -n $SESSION ]] || die "no session id (set MULTIPLAYR_SESSION)"; }
 
+# Revokes this machine's token on the server, when it has one.
+revoke_token() {
+  [[ -f $TOKEN_FILE ]] && curl -sS -m 10 -o /dev/null -X POST -H "Authorization: Bearer $(cat "$TOKEN_FILE")" "$SERVER/api/device/logout" 2>/dev/null
+  rm -f "$TOKEN_FILE"
+}
+
 cmd_login() {
   local start url poll status
   start=$(curl -sS -X POST -H 'content-type: application/json' -d "{\"name\":\"$(json_escape "$(hostname)")\"}" "$SERVER/api/device/start") || die "server unreachable"
@@ -51,16 +57,29 @@ cmd_login() {
     out=$(curl -sS -X POST -w '\n%{http_code}' -H 'content-type: application/json' -d "{\"poll\":\"$poll\"}" "$SERVER/api/device/poll") || continue
     status=${out##*$'\n'}
     case $status in
-      200) mkdir -p "$CONFIG_DIR"; (umask 077; printf '%s' "${out%$'\n'*}" >"$TOKEN_FILE"); echo "Signed in"; return ;;
+      200) revoke_token; mkdir -p "$CONFIG_DIR"; (umask 077; printf '%s' "${out%$'\n'*}" >"$TOKEN_FILE"); echo "Signed in"; return ;;
       410) echo "Link expired, run login again"; exit 1 ;;
     esac
   done
 }
 
+# The session's title as Claude Code stores it in the transcript, or nothing.
+session_title() {
+  [[ $PLATFORM == CLAUDE_CODE && -n $SESSION ]] || return 0
+  cat "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/"$SESSION.jsonl" 2>/dev/null | grep '"type":"custom-title"' | tail -1 | json_field customTitle
+}
+
+# The session title without a leading [tag], else the working folder, as a valid agent name.
+default_name() {
+  local title
+  title=$(session_title | sed -E 's/^\[[^]]*\] *//')
+  printf '%s' "${title:-$(basename "$PWD")}" | tr 'A-Z' 'a-z' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//' | cut -c1-40 | sed -E 's/-+$//'
+}
+
 cmd_join() {
   need_session
   local project=${1:?usage: multiplayr join <project> [name]}
-  local name=${2:-${MULTIPLAYR_NAME:-$(basename "$PWD" | tr 'A-Z_ .' 'a-z---' | tr -cd 'a-z0-9-' | cut -c1-40)}}
+  local name=${2:-${MULTIPLAYR_NAME:-$(default_name)}}
   api POST /api/agent/join -H 'content-type: application/json' \
     -d "{\"project\":\"$(json_escape "$project")\",\"name\":\"$(json_escape "$name")\",\"platform\":\"$PLATFORM\",\"model\":\"$(json_escape "${MULTIPLAYR_MODEL:-}")\"}"
   [[ $PLATFORM == CODEX ]] && start_relay
@@ -229,8 +248,9 @@ cmd_session_start() {
 
 case ${1:-} in
   login) cmd_login ;;
-  logout) rm -f "$TOKEN_FILE"; echo "Signed out" ;;
+  logout) revoke_token; echo "Signed out" ;;
   join) shift; cmd_join "$@" ;;
+  default-name) default_name; echo ;;
   topic) shift; cmd_topic "$@" ;;
   leave) shift; cmd_leave "$@" ;;
   rename) shift; cmd_rename "$@" ;;
@@ -243,5 +263,5 @@ case ${1:-} in
   mcp) cmd_mcp ;;
   relay) cmd_relay ;;
   session-start) shift; cmd_session_start "$@" ;;
-  *) echo "usage: multiplayr login | logout | join <project> [name] | topic <topic> | leave <topic> | leave --project | rename <name> | status | upload <topic> <file> [text] | download <file id> <path> | watch | wait | listen | mcp | relay | session-start <plugin root>" >&2; exit 2 ;;
+  *) echo "usage: multiplayr login | logout | join <project> [name] | default-name | topic <topic> | leave <topic> | leave --project | rename <name> | status | upload <topic> <file> [text] | download <file id> <path> | watch | wait | listen | mcp | relay | session-start <plugin root>" >&2; exit 2 ;;
 esac
