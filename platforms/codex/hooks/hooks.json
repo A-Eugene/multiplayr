@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "MULTIPLAYR_PLATFORM=CODEX \"${PLUGIN_ROOT}\"/bin/multiplayr session-start \"${PLUGIN_ROOT}\"" }
+        ]
+      }
+    ]
+  }
+}

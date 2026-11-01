@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "multiplayr": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/multiplayr",
+      "args": ["mcp"]
+    }
+  }
+}

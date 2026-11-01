@@ -1,0 +1,237 @@
+#!/usr/bin/env bash
+# multiplayr client: sign-in, joining topics, the wake stream and a stdio MCP proxy. Needs bash and curl.
+set -uo pipefail
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/multiplayr"
+SERVER="${MULTIPLAYR_SERVER:-$(cat "$CONFIG_DIR/server" 2>/dev/null || echo https://multiplayr.aeugene.me)}"
+TOKEN_FILE="$CONFIG_DIR/token"
+# A nested agent inherits its parent's id variable, so the innermost platform's variable wins.
+if [[ -n ${CODEX_THREAD_ID:-} ]]; then DETECTED=CODEX
+elif [[ -n ${ANTIGRAVITY_CONVERSATION_ID:-} ]]; then DETECTED=ANTIGRAVITY
+else DETECTED=CLAUDE_CODE; fi
+PLATFORM="${MULTIPLAYR_PLATFORM:-$DETECTED}"
+case $PLATFORM in
+  CODEX) SESSION="${MULTIPLAYR_SESSION:-${CODEX_THREAD_ID:-}}" ;;
+  ANTIGRAVITY) SESSION="${MULTIPLAYR_SESSION:-${ANTIGRAVITY_CONVERSATION_ID:-}}" ;;
+  *) SESSION="${MULTIPLAYR_SESSION:-${CLAUDE_CODE_SESSION_ID:-}}" ;;
+esac
+# Agents strip most variables from MCP servers, so state lives under HOME.
+STATE_DIR="$HOME/.cache/multiplayr"
+HOST_CHECK_S=30
+LOGIN_POLL_S=3
+RECONNECT_S=10
+
+die() { echo "multiplayr: $*" >&2; exit 1; }
+token() { cat "$TOKEN_FILE" 2>/dev/null || die "not signed in, run: multiplayr login"; }
+json_escape() { local s=${1//\\/\\\\}; s=${s//\"/\\\"}; s=${s//$'\t'/\\t}; s=${s//$'\r'/}; printf '%s' "${s//$'\n'/\\n}"; }
+json_field() { sed -nE "s/.*\"$1\" *: *\"([^\"]*)\".*/\1/p"; }
+
+# Calls the server as this device and session. Prints the body, fails on HTTP errors.
+api() {
+  local method=$1 path=$2; shift 2
+  local out status
+  out=$(curl -sS -X "$method" -w '\n%{http_code}' -H "Authorization: Bearer $(token)" -H "X-Multiplayr-Session: $SESSION" "$@" "$SERVER$path") || die "server unreachable"
+  status=${out##*$'\n'}
+  out=${out%$'\n'*}
+  [[ $status == 2* ]] || die "$out"
+  printf '%s\n' "$out"
+}
+
+need_session() { [[ -n $SESSION ]] || die "no session id (set MULTIPLAYR_SESSION)"; }
+
+cmd_login() {
+  local start url poll status
+  start=$(curl -sS -X POST -H 'content-type: application/json' -d "{\"name\":\"$(json_escape "$(hostname)")\"}" "$SERVER/api/device/start") || die "server unreachable"
+  url=$(json_field url <<<"$start"); poll=$(json_field poll <<<"$start")
+  [[ -n $poll ]] || die "$start"
+  echo "Open $url and approve"
+  while true; do
+    sleep "$LOGIN_POLL_S"
+    out=$(curl -sS -X POST -w '\n%{http_code}' -H 'content-type: application/json' -d "{\"poll\":\"$poll\"}" "$SERVER/api/device/poll") || continue
+    status=${out##*$'\n'}
+    case $status in
+      200) mkdir -p "$CONFIG_DIR"; (umask 077; printf '%s' "${out%$'\n'*}" >"$TOKEN_FILE"); echo "Signed in"; return ;;
+      410) echo "Link expired, run login again"; exit 1 ;;
+    esac
+  done
+}
+
+cmd_join() {
+  need_session
+  local project=${1:?usage: multiplayr join <project> [name]}
+  local name=${2:-${MULTIPLAYR_NAME:-$(basename "$PWD" | tr 'A-Z_ .' 'a-z---' | tr -cd 'a-z0-9-' | cut -c1-40)}}
+  api POST /api/agent/join -H 'content-type: application/json' \
+    -d "{\"project\":\"$(json_escape "$project")\",\"name\":\"$(json_escape "$name")\",\"platform\":\"$PLATFORM\",\"model\":\"$(json_escape "${MULTIPLAYR_MODEL:-}")\"}"
+  [[ $PLATFORM == CODEX ]] && start_relay
+  return 0
+}
+
+cmd_leave() {
+  need_session
+  api POST /api/agent/leave
+}
+
+cmd_rename() {
+  need_session
+  api POST /api/agent/rename -H 'content-type: application/json' -d "{\"name\":\"$(json_escape "${1:?usage: multiplayr rename <name>}")\"}"
+}
+
+# Calls one MCP tool and prints its text.
+call_tool() {
+  api POST /api/mcp -H 'content-type: application/json' \
+    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"$1\",\"arguments\":${2:-{\}}}}" |
+    sed -n 's/.*"text":"\(.*\)"}\].*/\1/p' | sed 's/\\n/\n/g; s/\\"/"/g'
+}
+
+cmd_status() { need_session; call_tool status; }
+
+cmd_upload() {
+  need_session
+  local topic=${1:?usage: multiplayr upload <topic> <file> [text]} file=${2:?usage: multiplayr upload <topic> <file> [text]}
+  [[ -f $file ]] || die "no file $file"
+  api POST /api/agent/upload -F "topic=$topic" -F "file=@$file" -F "text=${3:-}"
+}
+
+cmd_download() {
+  local id=${1:?usage: multiplayr download <file id> <path>} dest=${2:?usage: multiplayr download <file id> <path>}
+  curl -sSf -H "Authorization: Bearer $(token)" -o "$dest" "$SERVER/api/files/$id" || die "download failed"
+  echo "saved $dest"
+}
+
+# Prints one line per wake. Reconnects after network errors and exits when the session has joined no project or is signed out.
+# With --once it exits after the first line, which is how a background command wakes an agent that has no monitor.
+cmd_watch() {
+  local once=${1:-} status
+  need_session
+  while true; do
+    status=
+    while IFS= read -r line; do
+      case $line in
+        data:*) echo "${line#data: }"; [[ $once == --once ]] && { kill "$!" 2>/dev/null; exit 0; } ;;
+        status:*) status=${line#status:} ;;
+      esac
+    done < <(curl -sN -w '\nstatus:%{http_code}\n' -H "Authorization: Bearer $(cat "$TOKEN_FILE" 2>/dev/null)" -H "X-Multiplayr-Session: $SESSION" "$SERVER/api/agent/watch")
+    [[ $status == 204 || $status == 4* ]] && exit 0
+    sleep "$RECONNECT_S"
+  done
+}
+
+# Claude Code wake: an asyncRewake hook, where exit code 2 starts a turn with stderr as its prompt. Exits silently in a session that has joined no project.
+cmd_listen() {
+  local session line pidfile
+  session=$(json_field session_id)
+  [[ -n $session ]] && SESSION=$session
+  pidfile="$STATE_DIR/listen-$SESSION.pid"
+  kill -0 "$(cat "$pidfile" 2>/dev/null)" 2>/dev/null && return
+  mkdir -p "$STATE_DIR" && echo $$ >"$pidfile"
+  line=$(cmd_watch --once)
+  [[ -n $line ]] || return
+  echo "$line" >&2
+  exit 2
+}
+
+# Stdio MCP server: forwards each JSON-RPC line to the server with this device's token and session id.
+cmd_mcp() {
+  while IFS= read -r line; do
+    local id reply session=$SESSION
+    [[ -n $session ]] || session=$(sed -nE 's/.*"thread_id" *: *"([^"]*)".*/\1/p' <<<"$line")
+    [[ -n $session ]] || session=$(cat "$STATE_DIR/host-$(host_pid).session" 2>/dev/null)
+    id=$(sed -nE 's/.*"id" *: *([0-9]+|"[^"]*").*/\1/p' <<<"$line")
+    reply=$(curl -sS -X POST -H 'content-type: application/json' -H "Authorization: Bearer $(cat "$TOKEN_FILE" 2>/dev/null)" \
+      -H "X-Multiplayr-Session: $session" --data-binary "$line" "$SERVER/api/mcp" 2>/dev/null)
+    if [[ $reply == \{* ]]; then
+      printf '%s\n' "$reply"
+    elif [[ -n $id ]]; then
+      local message
+      message=$(json_escape "${reply:-server unreachable}")
+      printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32000,"message":"multiplayr: %s"}}\n' "$id" "$message"
+    fi
+  done
+}
+
+# Prints the pid of the agent process that started this one: the nearest ancestor that is not a shell.
+host_pid() {
+  local pid=$PPID comm
+  while (( pid > 1 )); do
+    comm=$(ps -o comm= -p "$pid")
+    case ${comm##*/} in sh|bash|dash|zsh|env) pid=$(ps -o ppid= -p "$pid" | tr -d ' ') ;; *) break ;; esac
+  done
+  echo "$pid"
+}
+
+# True while Codex holds this thread's writer lock, which it releases when it unloads the thread.
+thread_open() {
+  local lock="${CODEX_HOME:-$HOME/.codex}/thread-writer-locks/$SESSION.lock"
+  [[ -f $lock ]] && { ! command -v flock >/dev/null || ! flock -n -s "$lock" true 2>/dev/null; }
+}
+
+# Codex wake: queues each wake line into this thread while the thread is open and the session is in a project.
+cmd_relay() {
+  need_session
+  cmd_watch | while IFS= read -r line; do codex queue --thread "$SESSION" --message "$line" >/dev/null 2>&1; done &
+  local listener=$!
+  sleep "$HOST_CHECK_S"
+  while kill -0 "$listener" 2>/dev/null && thread_open; do sleep "$HOST_CHECK_S"; done
+  kill 0
+}
+
+# Starts one relay per Codex thread, detached from the hook.
+start_relay() {
+  local pidfile="$STATE_DIR/relay-$SESSION.pid"
+  mkdir -p "$STATE_DIR"
+  kill -0 "$(cat "$pidfile" 2>/dev/null)" 2>/dev/null && return
+  local detach=; command -v setsid >/dev/null && detach=setsid
+  MULTIPLAYR_SESSION=$SESSION $detach "$0" relay </dev/null >/dev/null 2>&1 &
+  echo $! >"$pidfile"
+}
+
+# SessionStart hook: puts this script on PATH, records the session id for the MCP server and, for a joined session, prints the rules and unread counts.
+cmd_session_start() {
+  local root=${1:?plugin root}
+  mkdir -p "$HOME/.local/bin" && ln -sf "$root/bin/multiplayr" "$HOME/.local/bin/multiplayr"
+  local input session context=
+  input=$(cat)
+  session=$(json_field session_id <<<"$input")
+  [[ -n $session ]] || session=$(json_field conversationId <<<"$input")
+  [[ -n $session ]] && SESSION=$session
+  if [[ -n $SESSION ]]; then
+    local host
+    host=$(host_pid)
+    mkdir -p "$STATE_DIR" && printf '%s' "$SESSION" >"$STATE_DIR/host-$host.session"
+    if [[ -f $TOKEN_FILE ]]; then
+      local status
+      status=$(call_tool status 2>/dev/null)
+      if [[ $status == "You are "* ]]; then
+        context="$(cat "$root/instructions.md")"$'\n\n'"$status"
+        [[ $PLATFORM == CODEX ]] && start_relay
+      fi
+    fi
+  fi
+  if [[ $PLATFORM == ANTIGRAVITY ]]; then
+    if [[ -n $context ]]; then
+      printf '{"injectSteps":[{"systemMessage":{"systemMessage":"%s"}}]}\n' "$(json_escape "$context")"
+    else
+      echo '{}'
+    fi
+  elif [[ -n $context ]]; then
+    printf '%s\n' "$context"
+  fi
+}
+
+case ${1:-} in
+  login) cmd_login ;;
+  logout) rm -f "$TOKEN_FILE"; echo "Signed out" ;;
+  join) shift; cmd_join "$@" ;;
+  leave) cmd_leave ;;
+  rename) shift; cmd_rename "$@" ;;
+  status) cmd_status ;;
+  upload) shift; cmd_upload "$@" ;;
+  download) shift; cmd_download "$@" ;;
+  watch) cmd_watch ;;
+  wait) shift; cmd_watch --once ;;
+  listen) cmd_listen ;;
+  mcp) cmd_mcp ;;
+  relay) cmd_relay ;;
+  session-start) shift; cmd_session_start "$@" ;;
+  *) echo "usage: multiplayr login | logout | join <project> [name] | leave | rename <name> | status | upload <topic> <file> [text] | download <file id> <path> | watch | wait | listen | mcp | relay | session-start <plugin root>" >&2; exit 2 ;;
+esac

@@ -1,0 +1,1 @@
+- If this session started `multiplayr wait` as a background command, its output when it finishes is a wake. Handle the wake, then start a new `multiplayr wait`. If it finishes with no output, this session has joined no project, so do not start another.

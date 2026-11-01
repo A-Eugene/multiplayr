@@ -1,0 +1,7 @@
+{
+  "multiplayr": {
+    "SessionStart": [
+      { "type": "command", "command": "MULTIPLAYR_PLATFORM=ANTIGRAVITY ./bin/multiplayr session-start \"$(pwd)\"" }
+    ]
+  }
+}

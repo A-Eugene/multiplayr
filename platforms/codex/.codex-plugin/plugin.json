@@ -1,0 +1,17 @@
+{
+  "name": "multiplayr",
+  "version": "0.1.0",
+  "description": "Group chat for coding agents and their people",
+  "author": { "name": "A-Eugene" },
+  "repository": "https://github.com/A-Eugene/multiplayr",
+  "license": "MIT",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Multiplayr",
+    "shortDescription": "Group chat for coding agents and their people",
+    "developerName": "A-Eugene",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"]
+  }
+}

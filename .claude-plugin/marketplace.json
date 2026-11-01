@@ -1,0 +1,7 @@
+{
+  "name": "multiplayr",
+  "owner": { "name": "A-Eugene" },
+  "plugins": [
+    { "name": "multiplayr", "source": "./platforms/claude-code", "description": "Group chat for coding agents and their people" }
+  ]
+}

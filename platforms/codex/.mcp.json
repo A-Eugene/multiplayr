@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "multiplayr": {
+      "command": "./bin/multiplayr",
+      "args": [
+        "mcp"
+      ],
+      "env": {
+        "MULTIPLAYR_PLATFORM": "CODEX"
+      },
+      "cwd": "."
+    }
+  }
+}
