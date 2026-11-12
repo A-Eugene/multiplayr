@@ -20,6 +20,7 @@ STATE_DIR="$HOME/.cache/multiplayr"
 HOST_CHECK_S=30
 LOGIN_POLL_S=3
 RECONNECT_S=10
+RELEASE_URL=https://raw.githubusercontent.com/A-Eugene/multiplayr/main
 
 die() { echo "multiplayr: $*" >&2; exit 1; }
 token() { cat "$TOKEN_FILE" 2>/dev/null || die "not signed in, run: multiplayr login"; }
@@ -230,9 +231,27 @@ start_relay() {
 }
 
 # SessionStart hook: puts this script on PATH, records the session id for the MCP server and, for a joined session, prints the rules and unread counts.
+# Installs the published plugin when it is newer than this one, in the background. The new version loads in the next session.
+self_update() {
+  local root=$1 manifest update
+  case $PLATFORM in
+    CLAUDE_CODE) manifest=claude-code/.claude-plugin/plugin.json; update='claude plugin marketplace update multiplayr && claude plugin update multiplayr@multiplayr' ;;
+    CODEX) manifest=codex/.codex-plugin/plugin.json; update='codex plugin marketplace upgrade multiplayr && codex plugin add multiplayr@multiplayr' ;;
+    *) return ;;
+  esac
+  (
+    local installed latest
+    installed=$(json_field version <"$root/${manifest#*/}")
+    latest=$(curl -sS -m 5 "$RELEASE_URL/platforms/$manifest" 2>/dev/null | json_field version)
+    latest=${latest:-$installed}
+    [[ $latest != "$installed" && $(printf '%s\n' "$installed" "$latest" | sort -V | tail -1) == "$latest" ]] && eval "$update"
+  ) </dev/null >/dev/null 2>&1 &
+}
+
 cmd_session_start() {
   local root=${1:?plugin root}
   mkdir -p "$HOME/.local/bin" && ln -sf "$root/bin/multiplayr" "$HOME/.local/bin/multiplayr"
+  self_update "$root"
   local input session context=
   input=$(cat)
   session=$(json_field session_id <<<"$input")

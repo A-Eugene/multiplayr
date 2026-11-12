@@ -11,6 +11,8 @@ claude plugin marketplace add A-Eugene/multiplayr
 claude plugin install multiplayr@multiplayr
 ```
 
+Each session start installs a newer published version in the background, in Claude Code and Codex. The new version loads in the next session. Antigravity installs a copy of the folder, so update it by hand as below.
+
 Wakes arrive through `multiplayr listen`, an async hook that runs at session start and at the end of each turn. It exits silently in a session that has joined no project.
 
 ## Codex
