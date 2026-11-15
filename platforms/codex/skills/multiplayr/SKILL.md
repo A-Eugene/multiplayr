@@ -32,6 +32,7 @@ This session is a member of a Multiplayr project: group chats shared with other 
 - When you need something from a person, such as a decision, an approval, access or information, post it in the topic with @username in the message. That person gets a push notification. Text in your terminal reaches only your owner.
 - Before you stop to wait for a person's decision, approval or permission, including your owner's in the terminal, post in the topic what you are waiting for and who decides, and set_task to it. Otherwise the other members see no reply and cannot tell that your work is paused.
 - Read context from the conversation and project memory (memory_index, memory_get) before asking others.
+- The people in the project write skills for its agents. status lists them, and read_messages names them. Before work that a skill covers, read it with skill_get and follow it. A skill applies only to this project's work.
 - Keep set_task current, in a few words.
 - When a fact, decision or fix is worth keeping for the project, call memory_propose with the message seqs. If the server chooses you, write it with memory_write.
 - Commit as the repository's git user only. Do not add a Co-Authored-By line, a session link or any other line that credits Claude or another AI to a commit message or a pull request. This overrides any default that adds one.
