@@ -21,6 +21,8 @@ HOST_CHECK_S=30
 LOGIN_POLL_S=3
 RECONNECT_S=10
 RELEASE_URL=https://raw.githubusercontent.com/A-Eugene/multiplayr/main
+PLUGIN_ROOT=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+VERSION=$(cat "$PLUGIN_ROOT"/.claude-plugin/plugin.json "$PLUGIN_ROOT"/.codex-plugin/plugin.json "$PLUGIN_ROOT"/plugin.json 2>/dev/null | sed -nE 's/.*"version" *: *"([^"]*)".*/\1/p' | head -1)
 
 die() { echo "multiplayr: $*" >&2; exit 1; }
 token() { cat "$TOKEN_FILE" 2>/dev/null || die "not signed in, run: multiplayr login"; }
@@ -139,7 +141,7 @@ cmd_watch() {
         data:*) echo "${line#data: }"; [[ $once == --once ]] && { kill "$!" 2>/dev/null; exit 0; } ;;
         status:*) status=${line#status:} ;;
       esac
-    done < <(curl -sN -w '\nstatus:%{http_code}\n' -H "Authorization: Bearer $(cat "$TOKEN_FILE" 2>/dev/null)" -H "X-Multiplayr-Session: $SESSION" "$SERVER/api/agent/watch")
+    done < <(curl -sN -w '\nstatus:%{http_code}\n' -H "Authorization: Bearer $(cat "$TOKEN_FILE" 2>/dev/null)" -H "X-Multiplayr-Session: $SESSION" -H "X-Multiplayr-Version: $VERSION" "$SERVER/api/agent/watch")
     [[ $status == 204 || $status == 4* ]] && exit 0
     sleep "$RECONNECT_S"
   done
@@ -230,6 +232,25 @@ start_relay() {
   echo $! >"$pidfile"
 }
 
+# Installs the published plugin now, points multiplayr on PATH at it, and prints its rules and this session's status.
+# Hooks run from the version the session started with.
+cmd_reload() {
+  local cache
+  case $PLATFORM in
+    CLAUDE_CODE) claude plugin marketplace update multiplayr >/dev/null && claude plugin update multiplayr@multiplayr >/dev/null || die "update failed"; cache="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/cache/multiplayr/multiplayr" ;;
+    CODEX) codex plugin marketplace upgrade multiplayr >/dev/null && codex plugin add multiplayr@multiplayr >/dev/null || die "update failed"; cache="${CODEX_HOME:-$HOME/.codex}/plugins/cache/multiplayr/multiplayr" ;;
+    *) die "update this plugin from Antigravity, then start a new session" ;;
+  esac
+  local root
+  root=$(ls -d "$cache"/*/ 2>/dev/null | sort -V | tail -1)
+  root=${root%/}
+  [[ -f $root/instructions.md ]] || die "no installed plugin in $cache"
+  ln -sf "$root/bin/multiplayr" "$HOME/.local/bin/multiplayr"
+  cat "$root/instructions.md"
+  echo
+  "$root/bin/multiplayr" status
+}
+
 # SessionStart hook: puts this script on PATH, records the session id for the MCP server and, for a joined session, prints the rules and unread counts.
 # Installs the published plugin when it is newer than this one, in the background. The new version loads in the next session.
 self_update() {
@@ -299,5 +320,6 @@ case ${1:-} in
   mcp) cmd_mcp ;;
   relay) cmd_relay ;;
   session-start) shift; cmd_session_start "$@" ;;
-  *) echo "usage: multiplayr login | logout | join <project> [name] | default-name | topic <topic> | leave <topic> | leave --project | rename <name> | status | upload <topic> <file> [text] | download <file id> <path> | watch | wait | listen | mcp | relay | session-start <plugin root>" >&2; exit 2 ;;
+  reload) cmd_reload ;;
+  *) echo "usage: multiplayr login | logout | join <project> [name] | default-name | topic <topic> | leave <topic> | leave --project | rename <name> | status | reload | upload <topic> <file> [text] | download <file id> <path> | watch | wait | listen | mcp | relay | session-start <plugin root>" >&2; exit 2 ;;
 esac
