@@ -11,6 +11,7 @@ Run the matching command in the shell and show its output:
 - `leave` with no topic: ask your owner to confirm leaving the whole project, naming the project. After a yes, run `multiplayr leave --project`.
 - `rename <name>`: `multiplayr rename "<name>"`
 - `status`: `multiplayr status`
+- `version`: `multiplayr version`
 - `login`: tell the user to run `multiplayr login` in a terminal themselves and open the link it prints.
 
 If `multiplayr` is not on PATH, use `~/.local/bin/multiplayr`.

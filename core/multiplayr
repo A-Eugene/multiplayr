@@ -232,23 +232,47 @@ start_relay() {
   echo $! >"$pidfile"
 }
 
-# Installs the published plugin now, points multiplayr on PATH at it, and prints its rules and this session's status.
-# Hooks run from the version the session started with.
-cmd_reload() {
+# The newest installed plugin folder for this platform, or nothing.
+installed_root() {
   local cache
   case $PLATFORM in
-    CLAUDE_CODE) claude plugin marketplace update multiplayr >/dev/null && claude plugin update multiplayr@multiplayr >/dev/null || die "update failed"; cache="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/cache/multiplayr/multiplayr" ;;
-    CODEX) codex plugin marketplace upgrade multiplayr >/dev/null && codex plugin add multiplayr@multiplayr >/dev/null || die "update failed"; cache="${CODEX_HOME:-$HOME/.codex}/plugins/cache/multiplayr/multiplayr" ;;
-    *) die "update this plugin from Antigravity, then start a new session" ;;
+    CLAUDE_CODE) cache="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/cache/multiplayr/multiplayr" ;;
+    CODEX) cache="${CODEX_HOME:-$HOME/.codex}/plugins/cache/multiplayr/multiplayr" ;;
+    *) return ;;
   esac
   local root
   root=$(ls -d "$cache"/*/ 2>/dev/null | sort -V | tail -1)
-  root=${root%/}
-  [[ -f $root/instructions.md ]] || die "no installed plugin in $cache"
+  printf '%s' "${root%/}"
+}
+
+# Installs the published plugin now, points multiplayr on PATH at it, and prints its rules and this session's status.
+# Hooks run from the version the session started with.
+cmd_reload() {
+  case $PLATFORM in
+    CLAUDE_CODE) claude plugin marketplace update multiplayr >/dev/null && claude plugin update multiplayr@multiplayr >/dev/null || die "update failed" ;;
+    CODEX) codex plugin marketplace upgrade multiplayr >/dev/null && codex plugin add multiplayr@multiplayr >/dev/null || die "update failed" ;;
+    *) die "update this plugin from Antigravity, then start a new session" ;;
+  esac
+  local root
+  root=$(installed_root)
+  [[ -f $root/instructions.md ]] || die "no installed plugin found"
   ln -sf "$root/bin/multiplayr" "$HOME/.local/bin/multiplayr"
+  [[ -n $SESSION ]] && mkdir -p "$STATE_DIR" && basename "$root" >"$STATE_DIR/rules-$SESSION"
   cat "$root/instructions.md"
   echo
   "$root/bin/multiplayr" status
+}
+
+# The installed version, the version this session's hooks run, and the rules version multiplayr reload loaded.
+cmd_version() {
+  local installed hooks rules
+  installed=$(basename "$(installed_root)" 2>/dev/null)
+  hooks=$(cat "$STATE_DIR/root-$SESSION" 2>/dev/null)
+  hooks=${hooks:+$(cat "$hooks"/.claude-plugin/plugin.json "$hooks"/.codex-plugin/plugin.json "$hooks"/plugin.json 2>/dev/null | sed -nE 's/.*"version" *: *"([^"]*)".*/\1/p' | head -1)}
+  rules=$(cat "$STATE_DIR/rules-$SESSION" 2>/dev/null)
+  echo "Installed: ${installed:-$VERSION}"
+  echo "This session's hooks: ${hooks:-unknown, started before 0.4.18}"
+  echo "This session's rules: ${rules:-${hooks:-unknown}}"
 }
 
 # SessionStart hook: puts this script on PATH, records the session id for the MCP server and, for a joined session, prints the rules and unread counts.
@@ -282,6 +306,8 @@ cmd_session_start() {
     local host
     host=$(host_pid)
     mkdir -p "$STATE_DIR" && printf '%s' "$SESSION" >"$STATE_DIR/host-$host.session"
+    printf '%s' "$root" >"$STATE_DIR/root-$SESSION"
+    rm -f "$STATE_DIR/rules-$SESSION"
     if [[ -f $TOKEN_FILE ]]; then
       local status
       status=$(call_tool status 2>/dev/null)
@@ -321,5 +347,6 @@ case ${1:-} in
   relay) cmd_relay ;;
   session-start) shift; cmd_session_start "$@" ;;
   reload) cmd_reload ;;
-  *) echo "usage: multiplayr login | logout | join <project> [name] | default-name | topic <topic> | leave <topic> | leave --project | rename <name> | status | reload | upload <topic> <file> [text] | download <file id> <path> | watch | wait | listen | mcp | relay | session-start <plugin root>" >&2; exit 2 ;;
+  version) cmd_version ;;
+  *) echo "usage: multiplayr login | logout | join <project> [name] | default-name | topic <topic> | leave <topic> | leave --project | rename <name> | status | reload | version | upload <topic> <file> [text] | download <file id> <path> | watch | wait | listen | mcp | relay | session-start <plugin root>" >&2; exit 2 ;;
 esac
