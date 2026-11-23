@@ -21,11 +21,23 @@ HOST_CHECK_S=30
 LOGIN_POLL_S=3
 RECONNECT_S=10
 RELEASE_URL=https://raw.githubusercontent.com/A-Eugene/multiplayr/main
+UPDATE_CHECK_MIN=10
+# The version whose hooks.json the running code expects. Raise it whenever hooks.json changes, so sessions with older hooks are told to restart.
+HOOKS_VERSION=0.4.20
 PLUGIN_ROOT=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
 plugin_version() {
   cat "$1"/.claude-plugin/plugin.json "$1"/.codex-plugin/plugin.json "$1"/plugin.json 2>/dev/null | sed -nE 's/.*"version" *: *"([^"]*)".*/\1/p' | head -1
 }
 VERSION=$(plugin_version "$PLUGIN_ROOT")
+# True when version $1 is newer than version $2. An empty version counts as oldest.
+newer() { [[ $1 != "${2:-0}" && $(printf '%s\n%s\n' "${2:-0}" "$1" | sort -V | tail -1) == "$1" ]]; }
+# The version the hooks and the CLI on PATH run now, which an update changes while this process keeps running.
+client_version() {
+  local target
+  target=$(readlink -f "$HOME/.local/bin/multiplayr" 2>/dev/null)
+  target=$(plugin_version "${target%/bin/multiplayr}")
+  printf '%s' "${target:-$VERSION}"
+}
 
 die() { echo "multiplayr: $*" >&2; exit 1; }
 token() { cat "$TOKEN_FILE" 2>/dev/null || die "not signed in, run: multiplayr login"; }
@@ -37,7 +49,7 @@ api() {
   local method=$1 path=$2; shift 2
   local out status bearer
   bearer=$(token) || exit 1
-  out=$(curl -sS -X "$method" -w '\n%{http_code}' -H "Authorization: Bearer $bearer" -H "X-Multiplayr-Session: $SESSION" "$@" "$SERVER$path") || die "server unreachable"
+  out=$(curl -sS -X "$method" -w '\n%{http_code}' -H "Authorization: Bearer $bearer" -H "X-Multiplayr-Session: $SESSION" -H "X-Multiplayr-Version: $(client_version)" "$@" "$SERVER$path") || die "server unreachable"
   status=${out##*$'\n'}
   out=${out%$'\n'*}
   [[ $status == 2* ]] || die "$out"
@@ -89,6 +101,7 @@ cmd_join() {
   api POST /api/agent/join -H 'content-type: application/json' \
     -d "{\"project\":\"$(json_escape "$project")\",\"name\":\"$(json_escape "$name")\",\"platform\":\"$PLATFORM\",\"model\":\"$(json_escape "${MULTIPLAYR_MODEL:-}")\"}"
   [[ $PLATFORM == CODEX ]] && start_relay
+  mkdir -p "$STATE_DIR" && touch "$STATE_DIR/joined-$SESSION"
   return 0
 }
 
@@ -165,6 +178,36 @@ cmd_listen() {
 }
 
 # Turn hooks: reports whether this session's agent is thinking or idle. A running turn is reported at most once a minute.
+# Installs a newer published version in the background, at most once per UPDATE_CHECK_MIN on this machine.
+check_update() {
+  local marker="$STATE_DIR/update-check"
+  [[ -n $(find "$marker" -mmin -"$UPDATE_CHECK_MIN" 2>/dev/null) ]] && return 0
+  mkdir -p "$STATE_DIR" && touch "$marker"
+  self_update "$PLUGIN_ROOT"
+}
+
+# For a joined Claude Code session: the new rules once after an update, and on each prompt a reminder to restart while its hooks are older than this version needs.
+hook_notes() {
+  local event=$1 start rules context= message=
+  [[ -f $STATE_DIR/joined-$SESSION ]] || return 0
+  start=$(cat "$STATE_DIR/root-$SESSION" 2>/dev/null)
+  start=${start:+$(plugin_version "$start")}
+  rules=$(cat "$STATE_DIR/rules-$SESSION" 2>/dev/null)
+  rules=${rules:-$start}
+  if newer "$VERSION" "$rules"; then
+    context="Multiplayr updated to $VERSION. Follow these rules from now on:"$'\n\n'"$(cat "$PLUGIN_ROOT/instructions.md")"
+    printf '%s' "$VERSION" >"$STATE_DIR/rules-$SESSION"
+  fi
+  if [[ $event == UserPromptSubmit ]] && newer "$HOOKS_VERSION" "$start"; then
+    message="Multiplayr $VERSION needs newer hooks than this session loaded (${start:-before 0.4.18}). Restart this session to load them: exit, then run claude --resume."
+  fi
+  [[ -n $context || -n $message ]] || return 0
+  local out="{"
+  [[ -n $message ]] && out+="\"systemMessage\":\"$(json_escape "$message")\""
+  [[ -n $context ]] && out+="${message:+,}\"hookSpecificOutput\":{\"hookEventName\":\"$event\",\"additionalContext\":\"$(json_escape "$context")\"}"
+  printf '%s}\n' "$out"
+}
+
 cmd_state() {
   local state=${1:?state} session mark input host
   input=$(cat)
@@ -179,6 +222,8 @@ cmd_state() {
     echo '{}'
   fi
   [[ -n $SESSION && -f $TOKEN_FILE ]] || return 0
+  [[ $state == thinking ]] && check_update
+  [[ $PLATFORM == CLAUDE_CODE ]] && hook_notes "$(json_field hook_event_name <<<"$input")"
   mark="$STATE_DIR/thinking-$SESSION"
   if [[ $state == thinking ]]; then
     [[ -n $(find "$mark" -mmin -1 2>/dev/null) ]] && return 0
@@ -191,7 +236,7 @@ cmd_state() {
   case $(json_field notification_type <<<"$input") in
     permission_prompt|elicitation_dialog) body="{\"state\":\"$state\",\"approval\":\"$(json_escape "$(json_field message <<<"$input")")\"}" ;;
   esac
-  curl -sS -m 3 -o /dev/null -X POST -H 'content-type: application/json' -H "Authorization: Bearer $(cat "$TOKEN_FILE")" -H "X-Multiplayr-Session: $SESSION" --data "$body" "$SERVER/api/agent/state" 2>/dev/null || true
+  curl -sS -m 3 -o /dev/null -X POST -H 'content-type: application/json' -H "Authorization: Bearer $(cat "$TOKEN_FILE")" -H "X-Multiplayr-Session: $SESSION" -H "X-Multiplayr-Version: $(client_version)" --data "$body" "$SERVER/api/agent/state" 2>/dev/null || true
 }
 
 # Stdio MCP server: forwards each JSON-RPC line to the server with this device's token and session id.
@@ -202,7 +247,7 @@ cmd_mcp() {
     [[ -n $session ]] || session=$(cat "$STATE_DIR/host-$(host_pid).session" 2>/dev/null)
     id=$(sed -nE 's/.*"id" *: *([0-9]+|"[^"]*").*/\1/p' <<<"$line")
     reply=$(curl -sS -X POST -H 'content-type: application/json' -H "Authorization: Bearer $(cat "$TOKEN_FILE" 2>/dev/null)" \
-      -H "X-Multiplayr-Session: $session" --data-binary "$line" "$SERVER/api/mcp" 2>/dev/null)
+      -H "X-Multiplayr-Session: $session" -H "X-Multiplayr-Version: $(client_version)" --data-binary "$line" "$SERVER/api/mcp" 2>/dev/null)
     if [[ $reply == \{* ]]; then
       printf '%s\n' "$reply"
     elif [[ -n $id ]]; then
@@ -349,7 +394,7 @@ self_update() {
     installed=$(json_field version <"$root/${manifest#*/}")
     latest=$(curl -sS -m 5 "$RELEASE_URL/platforms/$manifest" 2>/dev/null | json_field version)
     latest=${latest:-$installed}
-    [[ $latest != "$installed" && $(printf '%s\n' "$installed" "$latest" | sort -V | tail -1) == "$latest" ]] && eval "$update"
+    newer "$latest" "$installed" && eval "$update" && link_newest "$root"
   ) </dev/null >/dev/null 2>&1 &
 }
 
@@ -372,6 +417,7 @@ cmd_session_start() {
       local status
       status=$(call_tool status 2>/dev/null)
       if [[ $status == "You are "* ]]; then
+        touch "$STATE_DIR/joined-$SESSION"
         local rules="$root/instructions.md"
         [[ -f $rules ]] || rules="$PLUGIN_ROOT/instructions.md"
         context="$(cat "$rules")"$'\n\n'"$status"
