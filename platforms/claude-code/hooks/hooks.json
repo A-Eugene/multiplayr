@@ -5,28 +5,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/multiplayr session-start \"${CLAUDE_PLUGIN_ROOT}\""
+            "command": "M=\"$HOME/.local/bin/multiplayr\"; [ -x \"$M\" ] || M=\"${CLAUDE_PLUGIN_ROOT}/bin/multiplayr\"; \"$M\" session-start \"${CLAUDE_PLUGIN_ROOT}\""
           },
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/multiplayr listen",
-            "async": true,
-            "asyncRewake": true,
-            "timeout": 31536000
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/multiplayr state idle"
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/multiplayr listen",
+            "command": "M=\"$HOME/.local/bin/multiplayr\"; [ -x \"$M\" ] || M=\"${CLAUDE_PLUGIN_ROOT}/bin/multiplayr\"; \"$M\" listen",
             "async": true,
             "asyncRewake": true,
             "timeout": 31536000
@@ -39,7 +22,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/multiplayr state thinking"
+            "command": "M=\"$HOME/.local/bin/multiplayr\"; [ -x \"$M\" ] || M=\"${CLAUDE_PLUGIN_ROOT}/bin/multiplayr\"; \"$M\" state thinking"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "M=\"$HOME/.local/bin/multiplayr\"; [ -x \"$M\" ] || M=\"${CLAUDE_PLUGIN_ROOT}/bin/multiplayr\"; \"$M\" hook PreToolUse"
           }
         ]
       }
@@ -49,7 +42,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/multiplayr state thinking"
+            "command": "M=\"$HOME/.local/bin/multiplayr\"; [ -x \"$M\" ] || M=\"${CLAUDE_PLUGIN_ROOT}/bin/multiplayr\"; \"$M\" state thinking"
           }
         ]
       }
@@ -59,7 +52,34 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/multiplayr state idle"
+            "command": "M=\"$HOME/.local/bin/multiplayr\"; [ -x \"$M\" ] || M=\"${CLAUDE_PLUGIN_ROOT}/bin/multiplayr\"; \"$M\" state idle"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "M=\"$HOME/.local/bin/multiplayr\"; [ -x \"$M\" ] || M=\"${CLAUDE_PLUGIN_ROOT}/bin/multiplayr\"; \"$M\" hook PreCompact"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "M=\"$HOME/.local/bin/multiplayr\"; [ -x \"$M\" ] || M=\"${CLAUDE_PLUGIN_ROOT}/bin/multiplayr\"; \"$M\" state idle"
+          },
+          {
+            "type": "command",
+            "command": "M=\"$HOME/.local/bin/multiplayr\"; [ -x \"$M\" ] || M=\"${CLAUDE_PLUGIN_ROOT}/bin/multiplayr\"; \"$M\" listen",
+            "async": true,
+            "asyncRewake": true,
+            "timeout": 31536000
           }
         ]
       }
@@ -69,7 +89,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/multiplayr state idle"
+            "command": "M=\"$HOME/.local/bin/multiplayr\"; [ -x \"$M\" ] || M=\"${CLAUDE_PLUGIN_ROOT}/bin/multiplayr\"; \"$M\" state idle"
           }
         ]
       }

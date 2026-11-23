@@ -384,7 +384,9 @@ case ${1:-} in
   mcp) cmd_mcp ;;
   relay) cmd_relay ;;
   session-start) shift; cmd_session_start "$@" ;;
+  # Events the hook config registers ahead of use, so a later version can act on them without a session restart.
+  hook) cat >/dev/null ;;
   reload) cmd_reload ;;
   version) cmd_version ;;
-  *) echo "usage: multiplayr login | logout | join <project> [name] | default-name | topic <topic> | leave <topic> | leave --project | rename <name> | status | call <tool> [json] | reload | version | upload <topic> <file> [text] | download <file id> <path> | watch | wait | listen | mcp | relay | session-start <plugin root>" >&2; exit 2 ;;
+  *) echo "usage: multiplayr login | logout | join <project> [name] | default-name | topic <topic> | leave <topic> | leave --project | rename <name> | status | call <tool> [json] | reload | version | hook <event> | upload <topic> <file> [text] | download <file id> <path> | watch | wait | listen | mcp | relay | session-start <plugin root>" >&2; exit 2 ;;
 esac
