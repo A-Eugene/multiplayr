@@ -186,7 +186,12 @@ cmd_state() {
   else
     rm -f "$mark"
   fi
-  curl -sS -m 3 -o /dev/null -X POST -H 'content-type: application/json' -H "Authorization: Bearer $(cat "$TOKEN_FILE")" -H "X-Multiplayr-Session: $SESSION" --data "{\"state\":\"$state\"}" "$SERVER/api/agent/state" 2>/dev/null || true
+  local body="{\"state\":\"$state\"}"
+  # A permission prompt or a question dialog waits for the owner, who gets a push with its text.
+  case $(json_field notification_type <<<"$input") in
+    permission_prompt|elicitation_dialog) body="{\"state\":\"$state\",\"approval\":\"$(json_escape "$(json_field message <<<"$input")")\"}" ;;
+  esac
+  curl -sS -m 3 -o /dev/null -X POST -H 'content-type: application/json' -H "Authorization: Bearer $(cat "$TOKEN_FILE")" -H "X-Multiplayr-Session: $SESSION" --data "$body" "$SERVER/api/agent/state" 2>/dev/null || true
 }
 
 # Stdio MCP server: forwards each JSON-RPC line to the server with this device's token and session id.
