@@ -22,7 +22,10 @@ LOGIN_POLL_S=3
 RECONNECT_S=10
 RELEASE_URL=https://raw.githubusercontent.com/A-Eugene/multiplayr/main
 PLUGIN_ROOT=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
-VERSION=$(cat "$PLUGIN_ROOT"/.claude-plugin/plugin.json "$PLUGIN_ROOT"/.codex-plugin/plugin.json "$PLUGIN_ROOT"/plugin.json 2>/dev/null | sed -nE 's/.*"version" *: *"([^"]*)".*/\1/p' | head -1)
+plugin_version() {
+  cat "$1"/.claude-plugin/plugin.json "$1"/.codex-plugin/plugin.json "$1"/plugin.json 2>/dev/null | sed -nE 's/.*"version" *: *"([^"]*)".*/\1/p' | head -1
+}
+VERSION=$(plugin_version "$PLUGIN_ROOT")
 
 die() { echo "multiplayr: $*" >&2; exit 1; }
 token() { cat "$TOKEN_FILE" 2>/dev/null || die "not signed in, run: multiplayr login"; }
@@ -163,9 +166,18 @@ cmd_listen() {
 
 # Turn hooks: reports whether this session's agent is thinking or idle. A running turn is reported at most once a minute.
 cmd_state() {
-  local state=${1:?state} session mark
-  session=$(json_field session_id)
+  local state=${1:?state} session mark input host
+  input=$(cat)
+  session=$(json_field session_id <<<"$input")
+  [[ -n $session ]] || session=$(json_field conversationId <<<"$input")
   [[ -n $session ]] && SESSION=$session
+  if [[ $PLATFORM == ANTIGRAVITY ]]; then
+    if [[ -n $SESSION && $state == thinking ]]; then
+      host=$(host_pid)
+      mkdir -p "$STATE_DIR" && printf '%s' "$SESSION" >"$STATE_DIR/host-$host.session"
+    fi
+    echo '{}'
+  fi
   [[ -n $SESSION && -f $TOKEN_FILE ]] || return 0
   mark="$STATE_DIR/thinking-$SESSION"
   if [[ $state == thinking ]]; then
@@ -238,11 +250,28 @@ installed_root() {
   case $PLATFORM in
     CLAUDE_CODE) cache="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/cache/multiplayr/multiplayr" ;;
     CODEX) cache="${CODEX_HOME:-$HOME/.codex}/plugins/cache/multiplayr/multiplayr" ;;
+    ANTIGRAVITY)
+      local dir="${GEMINI_CONFIG_DIR:-$HOME/.gemini/config}/plugins/multiplayr"
+      [[ -d $dir ]] && printf '%s' "$dir"
+      return ;;
     *) return ;;
   esac
   local root
   root=$(ls -d "$cache"/*/ 2>/dev/null | sort -V | tail -1)
   printf '%s' "${root%/}"
+}
+
+# Downloads the latest published Antigravity plugin folder and installs it with agy.
+update_antigravity() {
+  local agy tmp rc
+  agy=$(command -v agy 2>/dev/null || echo "$HOME/.local/bin/agy")
+  [[ -x $agy ]] || return 1
+  tmp=$(mktemp -d) || return 1
+  curl -sSfL https://github.com/A-Eugene/multiplayr/archive/refs/heads/main.tar.gz | tar -xz -C "$tmp" &&
+    "$agy" plugin install "$tmp/multiplayr-main/platforms/antigravity" >/dev/null
+  rc=$?
+  rm -rf "$tmp"
+  return "$rc"
 }
 
 # Installs the published plugin now, points multiplayr on PATH at it, and prints its rules and this session's status.
@@ -251,13 +280,14 @@ cmd_reload() {
   case $PLATFORM in
     CLAUDE_CODE) claude plugin marketplace update multiplayr >/dev/null && claude plugin update multiplayr@multiplayr >/dev/null || die "update failed" ;;
     CODEX) codex plugin marketplace upgrade multiplayr >/dev/null && codex plugin add multiplayr@multiplayr >/dev/null || die "update failed" ;;
-    *) die "update this plugin from Antigravity, then start a new session" ;;
+    ANTIGRAVITY) update_antigravity || die "update failed" ;;
+    *) die "unsupported platform $PLATFORM" ;;
   esac
   local root
   root=$(installed_root)
   [[ -f $root/instructions.md ]] || die "no installed plugin found"
   ln -sf "$root/bin/multiplayr" "$HOME/.local/bin/multiplayr"
-  [[ -n $SESSION ]] && mkdir -p "$STATE_DIR" && basename "$root" >"$STATE_DIR/rules-$SESSION"
+  [[ -n $SESSION ]] && mkdir -p "$STATE_DIR" && plugin_version "$root" >"$STATE_DIR/rules-$SESSION"
   cat "$root/instructions.md"
   echo
   "$root/bin/multiplayr" status
@@ -266,9 +296,10 @@ cmd_reload() {
 # The installed version, the version this session's hooks run, and the rules version multiplayr reload loaded.
 cmd_version() {
   local installed hooks rules
-  installed=$(basename "$(installed_root)" 2>/dev/null)
+  installed=$(installed_root)
+  installed=${installed:+$(plugin_version "$installed")}
   hooks=$(cat "$STATE_DIR/root-$SESSION" 2>/dev/null)
-  hooks=${hooks:+$(cat "$hooks"/.claude-plugin/plugin.json "$hooks"/.codex-plugin/plugin.json "$hooks"/plugin.json 2>/dev/null | sed -nE 's/.*"version" *: *"([^"]*)".*/\1/p' | head -1)}
+  hooks=${hooks:+$(plugin_version "$hooks")}
   rules=$(cat "$STATE_DIR/rules-$SESSION" 2>/dev/null)
   echo "Installed: ${installed:-$VERSION}"
   echo "This session's hooks: ${hooks:-unknown, started before 0.4.18}"
@@ -282,6 +313,7 @@ self_update() {
   case $PLATFORM in
     CLAUDE_CODE) manifest=claude-code/.claude-plugin/plugin.json; update='claude plugin marketplace update multiplayr && claude plugin update multiplayr@multiplayr' ;;
     CODEX) manifest=codex/.codex-plugin/plugin.json; update='codex plugin marketplace upgrade multiplayr && codex plugin add multiplayr@multiplayr' ;;
+    ANTIGRAVITY) manifest=antigravity/plugin.json; update=update_antigravity ;;
     *) return ;;
   esac
   (
@@ -337,6 +369,7 @@ case ${1:-} in
   leave) shift; cmd_leave "$@" ;;
   rename) shift; cmd_rename "$@" ;;
   status) cmd_status ;;
+  call) shift; need_session; call_tool "${1:?usage: multiplayr call <tool> [json]}" "${2:-{}}" ;;
   upload) shift; cmd_upload "$@" ;;
   download) shift; cmd_download "$@" ;;
   watch) cmd_watch ;;
@@ -348,5 +381,5 @@ case ${1:-} in
   session-start) shift; cmd_session_start "$@" ;;
   reload) cmd_reload ;;
   version) cmd_version ;;
-  *) echo "usage: multiplayr login | logout | join <project> [name] | default-name | topic <topic> | leave <topic> | leave --project | rename <name> | status | reload | version | upload <topic> <file> [text] | download <file id> <path> | watch | wait | listen | mcp | relay | session-start <plugin root>" >&2; exit 2 ;;
+  *) echo "usage: multiplayr login | logout | join <project> [name] | default-name | topic <topic> | leave <topic> | leave --project | rename <name> | status | call <tool> [json] | reload | version | upload <topic> <file> [text] | download <file id> <path> | watch | wait | listen | mcp | relay | session-start <plugin root>" >&2; exit 2 ;;
 esac

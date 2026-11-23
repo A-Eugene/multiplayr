@@ -2,6 +2,20 @@
   "multiplayr": {
     "SessionStart": [
       { "type": "command", "command": "MULTIPLAYR_PLATFORM=ANTIGRAVITY ./bin/multiplayr session-start \"$(pwd)\"" }
+    ],
+    "PreInvocation": [
+      { "type": "command", "command": "MULTIPLAYR_PLATFORM=ANTIGRAVITY ./bin/multiplayr state thinking" }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "MULTIPLAYR_PLATFORM=ANTIGRAVITY ./bin/multiplayr state thinking" }
+        ]
+      }
+    ],
+    "Stop": [
+      { "type": "command", "command": "MULTIPLAYR_PLATFORM=ANTIGRAVITY ./bin/multiplayr state idle" }
     ]
   }
 }
