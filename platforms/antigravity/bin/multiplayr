@@ -266,6 +266,29 @@ installed_root() {
   printf '%s' "${root%/}"
 }
 
+# The newest installed version across the platforms' caches, or nothing.
+newest_install() {
+  local dir version best= best_version=
+  for dir in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/plugins/cache/multiplayr/multiplayr/*/ "${CODEX_HOME:-$HOME/.codex}"/plugins/cache/multiplayr/multiplayr/*/ "${GEMINI_CONFIG_DIR:-$HOME/.gemini/config}"/plugins/multiplayr/; do
+    [[ -x ${dir}bin/multiplayr ]] || continue
+    version=$(plugin_version "${dir%/}")
+    if [[ -z $best ]] || [[ $version != "$best_version" && $(printf '%s\n%s\n' "$best_version" "$version" | sort -V | tail -1) == "$version" ]]; then
+      best=${dir%/}
+      best_version=$version
+    fi
+  done
+  printf '%s' "$best"
+}
+
+# Points multiplayr on PATH at the newest installed version, or at the given root when none is installed. The hooks run that link.
+link_newest() {
+  local target link="$HOME/.local/bin/multiplayr"
+  target=$(newest_install)
+  [[ -n $target ]] || target=$1
+  [[ -x $target/bin/multiplayr ]] || return 0
+  mkdir -p "$HOME/.local/bin" && ln -s "$target/bin/multiplayr" "$link.$$" && mv -Tf "$link.$$" "$link"
+}
+
 # Downloads the latest published Antigravity plugin folder and installs it with agy.
 update_antigravity() {
   local agy tmp rc
@@ -291,7 +314,7 @@ cmd_reload() {
   local root
   root=$(installed_root)
   [[ -f $root/instructions.md ]] || die "no installed plugin found"
-  ln -sf "$root/bin/multiplayr" "$HOME/.local/bin/multiplayr"
+  link_newest "$root"
   [[ -n $SESSION ]] && mkdir -p "$STATE_DIR" && plugin_version "$root" >"$STATE_DIR/rules-$SESSION"
   cat "$root/instructions.md"
   echo
@@ -332,7 +355,7 @@ self_update() {
 
 cmd_session_start() {
   local root=${1:?plugin root}
-  mkdir -p "$HOME/.local/bin" && ln -sf "$root/bin/multiplayr" "$HOME/.local/bin/multiplayr"
+  link_newest "$root"
   self_update "$root"
   local input session context=
   input=$(cat)
@@ -349,7 +372,9 @@ cmd_session_start() {
       local status
       status=$(call_tool status 2>/dev/null)
       if [[ $status == "You are "* ]]; then
-        context="$(cat "$root/instructions.md")"$'\n\n'"$status"
+        local rules="$root/instructions.md"
+        [[ -f $rules ]] || rules="$PLUGIN_ROOT/instructions.md"
+        context="$(cat "$rules")"$'\n\n'"$status"
         [[ $PLATFORM == CODEX ]] && start_relay
       fi
     fi
