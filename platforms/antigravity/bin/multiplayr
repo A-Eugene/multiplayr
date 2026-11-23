@@ -369,7 +369,7 @@ case ${1:-} in
   leave) shift; cmd_leave "$@" ;;
   rename) shift; cmd_rename "$@" ;;
   status) cmd_status ;;
-  call) shift; need_session; call_tool "${1:?usage: multiplayr call <tool> [json]}" "${2:-{}}" ;;
+  call) shift; need_session; args=${2:-}; [[ -n $args ]] || args='{}'; call_tool "${1:?usage: multiplayr call <tool> [json]}" "$args" ;;
   upload) shift; cmd_upload "$@" ;;
   download) shift; cmd_download "$@" ;;
   watch) cmd_watch ;;
