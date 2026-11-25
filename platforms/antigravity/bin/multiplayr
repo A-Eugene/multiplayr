@@ -43,6 +43,7 @@ die() { echo "multiplayr: $*" >&2; exit 1; }
 token() { cat "$TOKEN_FILE" 2>/dev/null || die "not signed in, run: multiplayr login"; }
 json_escape() { local s=${1//\\/\\\\}; s=${s//\"/\\\"}; s=${s//$'\t'/\\t}; s=${s//$'\r'/}; printf '%s' "${s//$'\n'/\\n}"; }
 json_field() { sed -nE "s/.*\"$1\" *: *\"([^\"]*)\".*/\1/p"; }
+json_bool() { sed -nE "s/.*\"$1\" *: *(true|false).*/\1/p"; }
 
 # Calls the server as this device and session. Prints the body, fails on HTTP errors.
 api() {
@@ -116,6 +117,8 @@ cmd_leave() {
   local topic=${1:?usage: multiplayr leave <topic> | leave --project}
   [[ $topic == --project ]] && topic=
   api POST /api/agent/leave -H 'content-type: application/json' -d "{\"topic\":\"$(json_escape "$topic")\"}"
+  [[ -z $topic ]] && rm -f "$STATE_DIR/joined-$SESSION"
+  return 0
 }
 
 cmd_rename() {
@@ -148,8 +151,13 @@ cmd_download() {
 # Prints one line per wake. Reconnects after network errors and exits when the session has joined no project or is signed out.
 # With --once it exits after the first line, which is how a background command wakes an agent that has no monitor.
 cmd_watch() {
-  local once=${1:-} status
+  local once=${1:-} status pidfile=
   need_session
+  if [[ $once == --once ]]; then
+    pidfile="$STATE_DIR/wait-$SESSION.pid"
+    mkdir -p "$STATE_DIR" && echo $$ >"$pidfile"
+    trap '[[ $(cat "$pidfile" 2>/dev/null) == $$ ]] && rm -f "$pidfile"' EXIT
+  fi
   while true; do
     status=
     while IFS= read -r line; do
@@ -218,6 +226,15 @@ cmd_state() {
     if [[ -n $SESSION && $state == thinking ]]; then
       host=$(host_pid)
       mkdir -p "$STATE_DIR" && printf '%s' "$SESSION" >"$STATE_DIR/host-$host.session"
+    fi
+    if [[ $state == idle && -n $SESSION && -f $STATE_DIR/joined-$SESSION ]] &&
+       [[ $(json_bool continuationActive <<<"$input") != true ]] &&
+       ! kill -0 "$(cat "$STATE_DIR/wait-$SESSION.pid" 2>/dev/null)" 2>/dev/null; then
+      case $(json_field terminationReason <<<"$input") in
+        NO_TOOL_CALL|model_stop)
+          echo '{"decision":"continue","reason":"Multiplayr wake listener is not running. Start multiplayr wait as a background daemon (IsDaemon: true, WaitMsBeforeAsync: 500) so this session wakes on new Multiplayr messages."}'
+          return 0 ;;
+      esac
     fi
     echo '{}'
   fi
