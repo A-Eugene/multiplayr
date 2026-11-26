@@ -42,15 +42,20 @@ client_version() {
 die() { echo "multiplayr: $*" >&2; exit 1; }
 token() { cat "$TOKEN_FILE" 2>/dev/null || die "not signed in, run: multiplayr login"; }
 json_escape() { local s=${1//\\/\\\\}; s=${s//\"/\\\"}; s=${s//$'\t'/\\t}; s=${s//$'\r'/}; printf '%s' "${s//$'\n'/\\n}"; }
-json_field() { sed -nE "s/.*\"$1\" *: *\"([^\"]*)\".*/\1/p"; }
+# The last string value of key $1 on each line, with its JSON escapes kept, so it can go straight back into JSON.
+json_field() { sed -nE "s/.*\"$1\" *: *\"((\\\\.|[^\"\\\\])*)\".*/\1/p"; }
+# Decodes the escapes in a JSON string's content.
+json_unescape() { local s=${1//\\\"/\"}; printf '%b' "${s//\\\//\/}"; }
+# A curl config line with this device's token, passed with -K so the token stays out of the process list.
+auth_config() { printf 'header = "Authorization: Bearer %s"\n' "$(cat "$TOKEN_FILE" 2>/dev/null)"; }
 json_bool() { sed -nE "s/.*\"$1\" *: *(true|false).*/\1/p"; }
 
 # Calls the server as this device and session. Prints the body, fails on HTTP errors.
 api() {
   local method=$1 path=$2; shift 2
-  local out status bearer
-  bearer=$(token) || exit 1
-  out=$(curl -sS -X "$method" -w '\n%{http_code}' -H "Authorization: Bearer $bearer" -H "X-Multiplayr-Session: $SESSION" -H "X-Multiplayr-Version: $(client_version)" "$@" "$SERVER$path") || die "server unreachable"
+  local out status
+  token >/dev/null || exit 1
+  out=$(curl -sS -X "$method" -w '\n%{http_code}' -K <(auth_config) -H "X-Multiplayr-Session: $SESSION" -H "X-Multiplayr-Version: $(client_version)" "$@" "$SERVER$path") || die "server unreachable"
   status=${out##*$'\n'}
   out=${out%$'\n'*}
   [[ $status == 2* ]] || die "$out"
@@ -61,7 +66,7 @@ need_session() { [[ -n $SESSION ]] || die "no session id (set MULTIPLAYR_SESSION
 
 # Revokes this machine's token on the server, when it has one.
 revoke_token() {
-  [[ -f $TOKEN_FILE ]] && curl -sS -m 10 -o /dev/null -X POST -H "Authorization: Bearer $(cat "$TOKEN_FILE")" "$SERVER/api/device/logout" 2>/dev/null
+  [[ -f $TOKEN_FILE ]] && curl -sS -m 10 -o /dev/null -X POST -K <(auth_config) "$SERVER/api/device/logout" 2>/dev/null
   rm -f "$TOKEN_FILE"
 }
 
@@ -126,11 +131,17 @@ cmd_rename() {
   api POST /api/agent/rename -H 'content-type: application/json' -d "{\"name\":\"$(json_escape "${1:?usage: multiplayr rename <name>}")\"}"
 }
 
-# Calls one MCP tool and prints its text.
+# Calls one MCP tool and prints the text of every content item, separated by blank lines.
 call_tool() {
-  api POST /api/mcp -H 'content-type: application/json' \
-    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"$1\",\"arguments\":${2:-{\}}}}" |
-    sed -n 's/.*"text":"\(.*\)"}\].*/\1/p' | sed 's/\\n/\n/g; s/\\"/"/g'
+  local reply text first=1
+  reply=$(api POST /api/mcp -H 'content-type: application/json' \
+    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"$1\",\"arguments\":${2:-{\}}}}") || return 1
+  while IFS= read -r text; do
+    (( first )) || printf '\n\n'
+    first=0
+    json_unescape "$text"
+  done < <(grep -oE '"text" *: *"(\\.|[^"\\])*"' <<<"$reply" | sed -E 's/^"text" *: *"//; s/"$//')
+  echo
 }
 
 cmd_status() { need_session; call_tool status; }
@@ -144,7 +155,8 @@ cmd_upload() {
 
 cmd_download() {
   local id=${1:?usage: multiplayr download <file id> <path>} dest=${2:?usage: multiplayr download <file id> <path>}
-  curl -sSf -H "Authorization: Bearer $(token)" -o "$dest" "$SERVER/api/files/$id" || die "download failed"
+  token >/dev/null || exit 1
+  curl -sSf -K <(auth_config) -o "$dest" "$SERVER/api/files/$id" || die "download failed"
   echo "saved $dest"
 }
 
@@ -165,7 +177,7 @@ cmd_watch() {
         data:*) echo "${line#data: }"; [[ $once == --once ]] && { kill "$!" 2>/dev/null; exit 0; } ;;
         status:*) status=${line#status:} ;;
       esac
-    done < <(curl -sN -w '\nstatus:%{http_code}\n' -H "Authorization: Bearer $(cat "$TOKEN_FILE" 2>/dev/null)" -H "X-Multiplayr-Session: $SESSION" -H "X-Multiplayr-Version: $VERSION" "$SERVER/api/agent/watch")
+    done < <(curl -sN -w '\nstatus:%{http_code}\n' -K <(auth_config) -H "X-Multiplayr-Session: $SESSION" -H "X-Multiplayr-Version: $(client_version)" "$SERVER/api/agent/watch")
     [[ $status == 204 || $status == 4* ]] && exit 0
     sleep "$RECONNECT_S"
   done
@@ -251,9 +263,9 @@ cmd_state() {
   local body="{\"state\":\"$state\"}"
   # A permission prompt or a question dialog waits for the owner, who gets a push with its text.
   case $(json_field notification_type <<<"$input") in
-    permission_prompt|elicitation_dialog) body="{\"state\":\"$state\",\"approval\":\"$(json_escape "$(json_field message <<<"$input")")\"}" ;;
+    permission_prompt|elicitation_dialog) body="{\"state\":\"$state\",\"approval\":\"$(json_field message <<<"$input")\"}" ;;
   esac
-  curl -sS -m 3 -o /dev/null -X POST -H 'content-type: application/json' -H "Authorization: Bearer $(cat "$TOKEN_FILE")" -H "X-Multiplayr-Session: $SESSION" -H "X-Multiplayr-Version: $(client_version)" --data "$body" "$SERVER/api/agent/state" 2>/dev/null || true
+  curl -sS -m 3 -o /dev/null -X POST -H 'content-type: application/json' -K <(auth_config) -H "X-Multiplayr-Session: $SESSION" -H "X-Multiplayr-Version: $(client_version)" --data "$body" "$SERVER/api/agent/state" 2>/dev/null || true
 }
 
 # Stdio MCP server: forwards each JSON-RPC line to the server with this device's token and session id.
@@ -263,7 +275,7 @@ cmd_mcp() {
     [[ -n $session ]] || session=$(sed -nE 's/.*"thread_id" *: *"([^"]*)".*/\1/p' <<<"$line")
     [[ -n $session ]] || session=$(cat "$STATE_DIR/host-$(host_pid).session" 2>/dev/null)
     id=$(sed -nE 's/.*"id" *: *([0-9]+|"[^"]*").*/\1/p' <<<"$line")
-    reply=$(curl -sS -X POST -H 'content-type: application/json' -H "Authorization: Bearer $(cat "$TOKEN_FILE" 2>/dev/null)" \
+    reply=$(curl -sS -X POST -H 'content-type: application/json' -K <(auth_config) \
       -H "X-Multiplayr-Session: $session" -H "X-Multiplayr-Version: $(client_version)" --data-binary "$line" "$SERVER/api/mcp" 2>/dev/null)
     if [[ $reply == \{* ]]; then
       printf '%s\n' "$reply"
@@ -452,6 +464,9 @@ cmd_session_start() {
     printf '%s\n' "$context"
   fi
 }
+
+# Sourced by the tests for its functions only.
+[[ ${BASH_SOURCE[0]} == "$0" ]] || return 0
 
 case ${1:-} in
   login) cmd_login ;;

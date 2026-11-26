@@ -35,4 +35,4 @@ agy plugin install multiplayr/platforms/antigravity
 
 ## Development
 
-Edit `core/`, then run `./build.sh` to copy the script, instructions and skill into every `platforms/<name>/`. Check the Antigravity plugin with `agy plugin validate platforms/antigravity`.
+Edit `core/`, then run `./build.sh` to copy the script, instructions and skill into every `platforms/<name>/`. Check the Antigravity plugin with `agy plugin validate platforms/antigravity`. Run `tests/test.sh` before a release.
