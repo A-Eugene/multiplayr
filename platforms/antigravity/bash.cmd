@@ -1,5 +1,5 @@
 @echo off
-rem cmd.exe runs this for the hooks' "bash", since it looks in the plugin folder first. It runs Git for Windows' bash, never WSL's.
+rem Runs Git for Windows' bash, never WSL's. Antigravity's hooks reach it as "bash" from the plugin folder, and bin\multiplayr.cmd calls it.
 setlocal
 set "GITBASH="
 for /f "delims=" %%G in ('where git.exe 2^>nul') do if not defined GITBASH if exist "%%~dpG..\bin\bash.exe" set "GITBASH=%%~dpG..\bin\bash.exe"

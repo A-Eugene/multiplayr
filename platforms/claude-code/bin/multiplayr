@@ -5,8 +5,8 @@ set -uo pipefail
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/multiplayr"
 SERVER="${MULTIPLAYR_SERVER:-$(cat "$CONFIG_DIR/server" 2>/dev/null || echo https://multiplayr.aeugene.me)}"
 TOKEN_FILE="$CONFIG_DIR/token"
-# --platform=NAME as the first argument names the platform. Antigravity hooks use it, since cmd.exe on Windows has no VAR=value prefix.
-if [[ ${1:-} == --platform=* ]]; then MULTIPLAYR_PLATFORM=${1#--platform=}; shift; fi
+# --platform=NAME as the first argument names the platform, for this run and the processes it starts. Windows hooks use it, since cmd.exe has no VAR=value prefix.
+if [[ ${1:-} == --platform=* ]]; then export MULTIPLAYR_PLATFORM=${1#--platform=}; shift; fi
 # A nested agent inherits its parent's id variable, so the innermost platform's variable wins.
 if [[ -n ${CODEX_THREAD_ID:-} ]]; then DETECTED=CODEX
 elif [[ -n ${ANTIGRAVITY_CONVERSATION_ID:-} ]]; then DETECTED=ANTIGRAVITY

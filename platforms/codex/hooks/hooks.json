@@ -3,7 +3,11 @@
     "SessionStart": [
       {
         "hooks": [
-          { "type": "command", "command": "MULTIPLAYR_PLATFORM=CODEX \"${PLUGIN_ROOT}\"/bin/multiplayr session-start \"${PLUGIN_ROOT}\"" }
+          {
+            "type": "command",
+            "command": "MULTIPLAYR_PLATFORM=CODEX \"${PLUGIN_ROOT}\"/bin/multiplayr session-start \"${PLUGIN_ROOT}\"",
+            "commandWindows": "\"%PLUGIN_ROOT%\\bin\\multiplayr.cmd\" --platform=CODEX session-start"
+          }
         ]
       }
     ]

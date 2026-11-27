@@ -55,6 +55,7 @@ check "without Claude Code the link goes to another install" "$(readlink "$HOME/
 check "Antigravity reports its own folder, not the link" "$(PLATFORM=ANTIGRAVITY VERSION=0.4.9 client_version)" 0.4.9
 
 check "--platform names the platform" "$(bash -c 'source "$1" --platform=ANTIGRAVITY; echo "$PLATFORM"' _ "$(dirname "$0")/../core/multiplayr")" ANTIGRAVITY
+check "--platform reaches child processes" "$(bash -c 'source "$1" --platform=CODEX; bash -c "echo \$MULTIPLAYR_PLATFORM"' _ "$(dirname "$0")/../core/multiplayr")" CODEX
 
 (( fails )) && { echo "$fails failed"; exit 1; }
 echo "all passed"

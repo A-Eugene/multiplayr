@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Copies the core script, instructions and commands or skill into every platform folder.
+# Copies the core script, its Windows shims, instructions and commands or skill into every platform folder.
 set -euo pipefail
 cd "$(dirname "$0")"
 for dir in platforms/*/; do
   name=$(basename "$dir")
   mkdir -p "$dir/bin"
   cp core/multiplayr "$dir/bin/multiplayr"
+  cp core/windows/multiplayr.cmd "$dir/bin/"
+  cp core/windows/bash.cmd "$dir/"
   { cat core/instructions.md; [[ ! -f core/wake-$name.md ]] || cat "core/wake-$name.md"; } > "$dir/instructions.md"
   if [[ $name == claude-code ]]; then
     mkdir -p "$dir/commands"
