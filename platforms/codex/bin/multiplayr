@@ -360,7 +360,7 @@ link_newest() {
   target=$(newest_install)
   [[ -n $target ]] || target=$1
   [[ -x $target/bin/multiplayr ]] || return 0
-  mkdir -p "$HOME/.local/bin" && ln -s "$target/bin/multiplayr" "$link.$$" && mv -Tf "$link.$$" "$link"
+  mkdir -p "$HOME/.local/bin" && ln -s "$target/bin/multiplayr" "$link.$$" && mv -f "$link.$$" "$link"
 }
 
 # Downloads the latest published Antigravity plugin folder and installs it with agy.

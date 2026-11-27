@@ -38,7 +38,11 @@ for v in 0.4.9 0.4.24; do
   printf '{\n  "version": "%s"\n}\n' "$v" >"$d/.claude-plugin/plugin.json"
   printf '#!/bin/sh\n' >"$d/bin/multiplayr" && chmod +x "$d/bin/multiplayr"
 done
+# macOS mv has no -T, so the link must be replaced with options both versions share.
+mv() { [[ $* == *-T* ]] && { echo "mv: illegal option -- T" >&2; return 1; }; command mv "$@"; }
 link_newest /nowhere
+link_newest /nowhere
+unset -f mv
 check "link points at the newest install" "$(readlink "$HOME/.local/bin/multiplayr")" "$tmp/.claude/plugins/cache/multiplayr/multiplayr/0.4.24/bin/multiplayr"
 check "client version follows the link" "$(client_version)" 0.4.24
 
