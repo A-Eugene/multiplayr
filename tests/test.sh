@@ -57,5 +57,12 @@ check "Antigravity reports its own folder, not the link" "$(PLATFORM=ANTIGRAVITY
 check "--platform names the platform" "$(bash -c 'source "$1" --platform=ANTIGRAVITY; echo "$PLATFORM"' _ "$(dirname "$0")/../core/multiplayr")" ANTIGRAVITY
 check "--platform reaches child processes" "$(bash -c 'source "$1" --platform=CODEX; bash -c "echo \$MULTIPLAYR_PLATFORM"' _ "$(dirname "$0")/../core/multiplayr")" CODEX
 
+# The wake stream installs an announced update and prints only the wake lines.
+curl() { printf 'event: update\ndata: 9.9.9\n\ndata: wake one\n\nstatus:204\n'; }
+self_update() { echo "$2" >"$tmp/announced"; }
+check "update event prints no wake line" "$(SESSION=s cmd_watch)" "wake one"
+check "update event installs the announced version" "$(cat "$tmp/announced")" 9.9.9
+unset -f curl self_update
+
 (( fails )) && { echo "$fails failed"; exit 1; }
 echo "all passed"

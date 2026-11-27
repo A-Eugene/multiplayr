@@ -165,8 +165,9 @@ cmd_download() {
 
 # Prints one line per wake. Reconnects after network errors and exits when the session has joined no project or is signed out.
 # With --once it exits after the first line, which is how a background command wakes an agent that has no monitor.
+# An update event installs the announced version instead of printing a line.
 cmd_watch() {
-  local once=${1:-} status pidfile=
+  local once=${1:-} status event pidfile=
   need_session
   if [[ $once == --once ]]; then
     pidfile="$STATE_DIR/wait-$SESSION.pid"
@@ -174,10 +175,13 @@ cmd_watch() {
     trap '[[ $(cat "$pidfile" 2>/dev/null) == $$ ]] && rm -f "$pidfile"' EXIT
   fi
   while true; do
-    status=
+    status= event=
     while IFS= read -r line; do
       case $line in
-        data:*) echo "${line#data: }"; [[ $once == --once ]] && { kill "$!" 2>/dev/null; exit 0; } ;;
+        event:*) event=${line#event: } ;;
+        data:*) [[ $event == update ]] && { self_update "$PLUGIN_ROOT" "${line#data: }"; continue; }
+          echo "${line#data: }"; [[ $once == --once ]] && { kill "$!" 2>/dev/null; exit 0; } ;;
+        '') event= ;;
         status:*) status=${line#status:} ;;
       esac
     done < <(curl -sN -w '\nstatus:%{http_code}\n' -K <(auth_config) -H "X-Multiplayr-Session: $SESSION" -H "X-Multiplayr-Version: $(client_version)" "$SERVER/api/agent/watch")
@@ -420,9 +424,9 @@ cmd_version() {
 }
 
 # SessionStart hook: puts this script on PATH, records the session id for the MCP server and, for a joined session, prints the rules and unread counts.
-# Installs the published plugin when it is newer than this one, in the background. The new version loads in the next session.
+# Installs the published version, or the given one, in the background when it is newer than the plugin folder's, then moves the link. The new version loads in the next session.
 self_update() {
-  local root=$1 manifest update
+  local root=$1 announced=${2:-} manifest update
   case $PLATFORM in
     CLAUDE_CODE) manifest=claude-code/.claude-plugin/plugin.json; update='claude plugin marketplace update multiplayr && claude plugin update multiplayr@multiplayr' ;;
     CODEX) manifest=codex/.codex-plugin/plugin.json; update='codex plugin marketplace upgrade multiplayr && codex plugin add multiplayr@multiplayr' ;;
@@ -432,7 +436,7 @@ self_update() {
   (
     local installed latest
     installed=$(json_field version <"$root/${manifest#*/}")
-    latest=$(curl -sS -m 5 "$RELEASE_URL/platforms/$manifest" 2>/dev/null | json_field version)
+    latest=${announced:-$(curl -sS -m 5 "$RELEASE_URL/platforms/$manifest" 2>/dev/null | json_field version)}
     latest=${latest:-$installed}
     newer "$latest" "$installed" && eval "$update" && link_newest "$root"
   ) </dev/null >/dev/null 2>&1 &
