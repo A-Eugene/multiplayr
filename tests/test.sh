@@ -47,5 +47,7 @@ check "link points at the newest install" "$(readlink "$HOME/.local/bin/multipla
 check "client version follows the link" "$(client_version)" 0.4.24
 check "Antigravity reports its own folder, not the link" "$(PLATFORM=ANTIGRAVITY VERSION=0.4.9 client_version)" 0.4.9
 
+check "--platform names the platform" "$(bash -c 'source "$1" --platform=ANTIGRAVITY; echo "$PLATFORM"' _ "$(dirname "$0")/../core/multiplayr")" ANTIGRAVITY
+
 (( fails )) && { echo "$fails failed"; exit 1; }
 echo "all passed"

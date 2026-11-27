@@ -1,9 +1,12 @@
 {
   "mcpServers": {
     "multiplayr": {
-      "command": "bash",
-      "args": ["${PLUGIN_ROOT}/bin/multiplayr", "mcp"],
-      "env": { "MULTIPLAYR_PLATFORM": "ANTIGRAVITY" }
+      "command": "bin/multiplayr",
+      "args": [
+        "--platform=ANTIGRAVITY",
+        "mcp"
+      ],
+      "cwd": "${PLUGIN_ROOT}"
     }
   }
 }

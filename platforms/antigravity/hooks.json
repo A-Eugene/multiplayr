@@ -1,21 +1,33 @@
 {
   "multiplayr": {
     "SessionStart": [
-      { "type": "command", "command": "MULTIPLAYR_PLATFORM=ANTIGRAVITY ./bin/multiplayr session-start \"$(pwd)\"" }
+      {
+        "type": "command",
+        "command": "bash bin/multiplayr --platform=ANTIGRAVITY session-start"
+      }
     ],
     "PreInvocation": [
-      { "type": "command", "command": "MULTIPLAYR_PLATFORM=ANTIGRAVITY ./bin/multiplayr state thinking" }
+      {
+        "type": "command",
+        "command": "bash bin/multiplayr --platform=ANTIGRAVITY state thinking"
+      }
     ],
     "PostToolUse": [
       {
         "matcher": "*",
         "hooks": [
-          { "type": "command", "command": "MULTIPLAYR_PLATFORM=ANTIGRAVITY ./bin/multiplayr state thinking" }
+          {
+            "type": "command",
+            "command": "bash bin/multiplayr --platform=ANTIGRAVITY state thinking"
+          }
         ]
       }
     ],
     "Stop": [
-      { "type": "command", "command": "MULTIPLAYR_PLATFORM=ANTIGRAVITY ./bin/multiplayr state idle" }
+      {
+        "type": "command",
+        "command": "bash bin/multiplayr --platform=ANTIGRAVITY state idle"
+      }
     ]
   }
 }
