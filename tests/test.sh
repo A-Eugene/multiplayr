@@ -45,6 +45,7 @@ link_newest /nowhere
 unset -f mv
 check "link points at the newest install" "$(readlink "$HOME/.local/bin/multiplayr")" "$tmp/.claude/plugins/cache/multiplayr/multiplayr/0.4.24/bin/multiplayr"
 check "client version follows the link" "$(client_version)" 0.4.24
+check "Antigravity reports its own folder, not the link" "$(PLATFORM=ANTIGRAVITY VERSION=0.4.9 client_version)" 0.4.9
 
 (( fails )) && { echo "$fails failed"; exit 1; }
 echo "all passed"

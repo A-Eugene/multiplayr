@@ -31,9 +31,10 @@ plugin_version() {
 VERSION=$(plugin_version "$PLUGIN_ROOT")
 # True when version $1 is newer than version $2. An empty version counts as oldest.
 newer() { [[ $1 != "${2:-0}" && $(printf '%s\n%s\n' "${2:-0}" "$1" | sort -V | tail -1) == "$1" ]]; }
-# The version the hooks and the CLI on PATH run now, which an update changes while this process keeps running.
+# The version this session's hooks run now. Claude Code hooks run the multiplayr link, which an update moves while this process keeps running. Codex and Antigravity hooks run their own plugin folder.
 client_version() {
   local target
+  [[ $PLATFORM == CLAUDE_CODE ]] || { printf '%s' "$VERSION"; return; }
   target=$(readlink -f "$HOME/.local/bin/multiplayr" 2>/dev/null)
   target=$(plugin_version "${target%/bin/multiplayr}")
   printf '%s' "${target:-$VERSION}"
