@@ -343,17 +343,25 @@ installed_root() {
   printf '%s' "${root%/}"
 }
 
-# The newest installed version across the platforms' caches, or nothing.
-newest_install() {
+# The newest installed version among the folders given, or nothing.
+newest_of() {
   local dir version best= best_version=
-  for dir in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/plugins/cache/multiplayr/multiplayr/*/ "${CODEX_HOME:-$HOME/.codex}"/plugins/cache/multiplayr/multiplayr/*/ "${GEMINI_CONFIG_DIR:-$HOME/.gemini/config}"/plugins/multiplayr/; do
+  for dir in "$@"; do
     [[ -x ${dir}bin/multiplayr ]] || continue
     version=$(plugin_version "${dir%/}")
-    if [[ -z $best ]] || [[ $version != "$best_version" && $(printf '%s\n%s\n' "$best_version" "$version" | sort -V | tail -1) == "$version" ]]; then
+    if [[ -z $best ]] || newer "$version" "$best_version"; then
       best=${dir%/}
       best_version=$version
     fi
   done
+  printf '%s' "$best"
+}
+
+# The newest Claude Code install, whose hooks run the multiplayr link, else the newest Codex or Antigravity install, for the CLI on PATH.
+newest_install() {
+  local best
+  best=$(newest_of "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/plugins/cache/multiplayr/multiplayr/*/)
+  [[ -n $best ]] || best=$(newest_of "${CODEX_HOME:-$HOME/.codex}"/plugins/cache/multiplayr/multiplayr/*/ "${GEMINI_CONFIG_DIR:-$HOME/.gemini/config}"/plugins/multiplayr/)
   printf '%s' "$best"
 }
 

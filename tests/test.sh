@@ -45,6 +45,13 @@ link_newest /nowhere
 unset -f mv
 check "link points at the newest install" "$(readlink "$HOME/.local/bin/multiplayr")" "$tmp/.claude/plugins/cache/multiplayr/multiplayr/0.4.24/bin/multiplayr"
 check "client version follows the link" "$(client_version)" 0.4.24
+g=$tmp/.gemini/config/plugins/multiplayr
+mkdir -p "$g/bin" && printf '{\n  "version": "0.4.99"\n}\n' >"$g/plugin.json" && printf '#!/bin/sh\n' >"$g/bin/multiplayr" && chmod +x "$g/bin/multiplayr"
+link_newest /nowhere
+check "a newer Antigravity install does not take the link from Claude Code" "$(readlink "$HOME/.local/bin/multiplayr")" "$tmp/.claude/plugins/cache/multiplayr/multiplayr/0.4.24/bin/multiplayr"
+rm -rf "$tmp/.claude"
+link_newest /nowhere
+check "without Claude Code the link goes to another install" "$(readlink "$HOME/.local/bin/multiplayr")" "$g/bin/multiplayr"
 check "Antigravity reports its own folder, not the link" "$(PLATFORM=ANTIGRAVITY VERSION=0.4.9 client_version)" 0.4.9
 
 check "--platform names the platform" "$(bash -c 'source "$1" --platform=ANTIGRAVITY; echo "$PLATFORM"' _ "$(dirname "$0")/../core/multiplayr")" ANTIGRAVITY
